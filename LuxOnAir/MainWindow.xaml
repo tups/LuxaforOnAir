@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Luxafor On Air Settings" Height="337" Width="495.261" Closing="Window_Closing" Closed="Window_Closed" Icon="AppIcon.ico" StateChanged="Window_StateChanged" MinWidth="600" MinHeight="337" SourceInitialized="Window_SourceInitialized" ResizeMode="CanResizeWithGrip" >
+        Title="Luxafor On Air Settings" Height="337" Width="495.261" Closing="Window_Closing" Closed="Window_Closed" Icon="AppIcon.ico" StateChanged="Window_StateChanged" MinWidth="680" MinHeight="337" SourceInitialized="Window_SourceInitialized" ResizeMode="CanResizeWithGrip" >
     <Grid Margin="0,0,0,0">
         <TabControl x:Name="tabControl" Margin="10,10,8,44">
             <TabItem Header="General" HorizontalAlignment="Left" Height="20.8" VerticalAlignment="Top" Width="53.6">
