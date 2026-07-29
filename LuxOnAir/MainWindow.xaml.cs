@@ -486,8 +486,9 @@ namespace LuxOnAir
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
-            // Hide the window, don't actually quit unless we used an Exit button or menu
-            if (!ReallyExit)
+            // Hide the window, don't actually quit unless we used an Exit button or menu,
+            // or Windows is shutting us down
+            if (!ReallyExit && !bSystemShutdown)
             {
                 Hide();
                 e.Cancel = true;
@@ -498,8 +499,10 @@ namespace LuxOnAir
 
         private void Window_Closed(object sender, EventArgs e)
         {
-            // Literally turn off the lights
-            Settings.Default.Lights.ShutdownHardware();
+            // Literally turn off the lights, unless we just set an out-of-service color that should
+            // remain displayed after Windows has shut down
+            Settings.Default.Lights.ShutdownHardware(
+                !(bSystemShutdown && Settings.Default.Lights.Colors.ChangeOnOutOfService));
             
             // Stop listening for console lock & unlock events
             SystemEvents.SessionSwitch -= SessionSwitchHandler;
