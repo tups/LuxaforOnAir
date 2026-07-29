@@ -410,6 +410,21 @@ namespace LuxOnAir
         }
 
         /// <summary>
+        /// React to the system going out of service (sleep, shutdown, restart, logoff)
+        /// </summary>
+        private void GoOutOfService()
+        {
+            if (Settings.Default.Lights.Colors.ChangeOnOutOfService)
+            {
+                Settings.Default.Lights.SetOutOfService();
+            }
+            else
+            {
+                Settings.Default.Lights.SetLightsOff();
+            }
+        }
+
+        /// <summary>
         /// Write a message to the debug log control
         /// </summary>
         /// <param name="Msg">Message to write to the log</param>
@@ -634,6 +649,12 @@ namespace LuxOnAir
         {
             WriteToDebug("Testing 'Console Locked' color.");
             Settings.Default.Lights.SetLocked();
+        }
+
+        private void BtnTestOutOfService_Click(object sender, RoutedEventArgs e)
+        {
+            WriteToDebug("Testing 'System Sleeps or Shuts Down' behavior.");
+            GoOutOfService();
         }
 
         private void BtnTestReset_Click(object sender, RoutedEventArgs e)
