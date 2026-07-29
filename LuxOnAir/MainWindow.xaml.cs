@@ -152,6 +152,10 @@ namespace LuxOnAir
             radioLockedYes.IsChecked = Settings.Default.Lights.Colors.ChangeOnLock;
             btnLocked.Background = Settings.Default.Lights.Colors.SessionLocked.ToBrush();
 
+            radioOutOfServiceYes.IsChecked = Settings.Default.Lights.Colors.ChangeOnOutOfService;
+            radioOutOfServiceNo.IsChecked = !Settings.Default.Lights.Colors.ChangeOnOutOfService;
+            btnOutOfService.Background = Settings.Default.Lights.Colors.OutOfService.ToBrush();
+
             chkInUseBlink.IsChecked = Settings.Default.Lights.Colors.BlinkMicInUse;
             chkInUseWave.IsChecked = Settings.Default.Lights.Colors.WaveMicInUse;
         }
@@ -538,6 +542,23 @@ namespace LuxOnAir
             }
         }
 
+        private void BtnOutOfService_Click(object sender, RoutedEventArgs e)
+        {
+            // Show a color dialog with the current color for the user to change
+            ColorDialog colorDialog = new ColorDialog()
+            {
+                Color = System.Drawing.Color.FromArgb(Settings.Default.Lights.Colors.OutOfService)
+            };
+
+            // If the user did not cancel, set the picked color as the new out-of-service indicator color
+            if (colorDialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+            {
+                Settings.Default.Lights.Colors.OutOfService = colorDialog.Color.ToArgb();
+                btnOutOfService.Background = Settings.Default.Lights.Colors.OutOfService.ToBrush();
+                ApplySettings();
+            }
+        }
+
         private void BtnTest_Click(object sender, RoutedEventArgs e)
         {
             List<string> micUsers = CheckMicUsage();
@@ -630,6 +651,13 @@ namespace LuxOnAir
         {
             // Set the UI and saved settings to match whether this option is enabled or not
             labelLockedColor.IsEnabled = btnLocked.IsEnabled = Settings.Default.Lights.Colors.ChangeOnLock = (bool)radioLockedYes.IsChecked;
+            ApplySettings();
+        }
+
+        private void RadioOutOfService_Checked(object sender, RoutedEventArgs e)
+        {
+            // Set the UI and saved settings to match whether this option is enabled or not
+            labelOutOfServiceColor.IsEnabled = btnOutOfService.IsEnabled = Settings.Default.Lights.Colors.ChangeOnOutOfService = (bool)radioOutOfServiceYes.IsChecked;
             ApplySettings();
         }
     }
