@@ -32,6 +32,21 @@ namespace LuxOnAir
         private static SessionSwitchEventHandler SessionSwitchHandler;
 
         /// <summary>
+        /// Handles system power mode changes (suspend/resume)
+        /// </summary>
+        private static PowerModeChangedEventHandler PowerModeHandler;
+
+        /// <summary>
+        /// Handles the end of the Windows session (shutdown, restart, logoff)
+        /// </summary>
+        private static SessionEndingEventHandler SessionEndingHandler;
+
+        /// <summary>
+        /// Indicates the session is ending because Windows is shutting down or logging off.
+        /// </summary>
+        private bool bSystemShutdown = false;
+
+        /// <summary>
         /// Watches for system hardware changes (e.g. USB connect/disconnect)
         /// </summary>
         private static ManagementEventWatcher hardwareWatcher;
@@ -40,11 +55,6 @@ namespace LuxOnAir
         /// Watches for registry changes (mic in use)
         /// </summary>
         private static ManagementEventWatcher regWatcher;
-
-        /// <summary>
-        /// Watches for system power events (e.g. suspend/resume)
-        /// </summary>
-        private static ManagementEventWatcher powerWatcher;
 
         /// <summary>
         /// Keeps track of whether the console is locked or unlocked.
@@ -78,6 +88,8 @@ namespace LuxOnAir
                 lblAbout.Content = SettingsHelper.About;
 
                 SystemEvents.SessionSwitch += SessionSwitchHandler = new SessionSwitchEventHandler(OnSessionSwitch);
+                SystemEvents.PowerModeChanged += PowerModeHandler = new PowerModeChangedEventHandler(OnPowerModeChanged);
+                SystemEvents.SessionEnding += SessionEndingHandler = new SessionEndingEventHandler(OnSessionEnding);
 
                 InitNotifyIcon();
                 LoadSettings();
@@ -110,14 +122,6 @@ namespace LuxOnAir
                 };
                 hardwareWatcher.EventArrived += USBDevices_Changed;
                 hardwareWatcher.Start();
-
-                // Watch for power changes
-                powerWatcher = new ManagementEventWatcher
-                {
-                    Query = new WqlEventQuery("SELECT * FROM Win32_PowerManagementEvent")
-                };
-                powerWatcher.EventArrived += PowerEvent_Arrive;
-                powerWatcher.Start();
 
                 // Run the first mic check now
                 CheckMicUsage();
@@ -279,33 +283,41 @@ namespace LuxOnAir
         /// <summary>
         /// Respond to suspend/resume events
         /// </summary>
-        private void PowerEvent_Arrive(object sender, EventArrivedEventArgs e)
+        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
         {
-            foreach (PropertyData pd in e.NewEvent.Properties)
+            switch (e.Mode)
             {
-                if (pd.Value != null)
-                {
-                    string eventValue = pd.Value.ToString();
-                    // Entering suspend
-                    if (eventValue == "4")
+                case PowerModes.Suspend:
+                    WriteToDebug("System entering Suspend, going out of service.");
+                    Dispatcher.Invoke(() =>
                     {
-                        WriteToDebug("System entering Suspend, turning lights off.");
-                        Dispatcher.Invoke(() =>
-                        {
-                            Settings.Default.Lights.SetLightsOff();
-                        });
-                    } 
-                    // Resuming from suspend
-                    else if (eventValue == "7")
+                        GoOutOfService();
+                    });
+                    break;
+                case PowerModes.Resume:
+                    WriteToDebug("System resuming from Suspend, returning to normal status.");
+                    Dispatcher.Invoke(() =>
                     {
-                        WriteToDebug("System resuming from Suspend, turning lights back on.");
-                        Dispatcher.Invoke(() =>
-                        {
-                            CheckMicUsage();
-                        });
-                    }
-                }
+                        CheckMicUsage();
+                    });
+                    break;
             }
+        }
+
+        /// <summary>
+        /// Respond to the Windows session ending (shutdown, restart, logoff)
+        /// </summary>
+        private void OnSessionEnding(object sender, SessionEndingEventArgs e)
+        {
+            WriteToDebug(string.Format("Session ending ({0}), going out of service.", e.Reason));
+
+            Dispatcher.Invoke(() =>
+            {
+                GoOutOfService();
+            });
+
+            // Allow the window to close without being cancelled, and never delay Windows shutting down
+            bSystemShutdown = true;
         }
 
         /// <summary>
@@ -491,6 +503,8 @@ namespace LuxOnAir
             
             // Stop listening for console lock & unlock events
             SystemEvents.SessionSwitch -= SessionSwitchHandler;
+            SystemEvents.PowerModeChanged -= PowerModeHandler;
+            SystemEvents.SessionEnding -= SessionEndingHandler;
 
             notifyIcon.Dispose();
 
@@ -499,8 +513,6 @@ namespace LuxOnAir
             regWatcher.Dispose();
             hardwareWatcher.Stop();
             hardwareWatcher.Dispose();
-            powerWatcher.Stop();
-            powerWatcher.Dispose();
 
             // Release the single-instance mutex
             mutex.ReleaseMutex();
