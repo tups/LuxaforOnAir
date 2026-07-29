@@ -75,14 +75,20 @@ namespace LuxOnAir
         /// <summary>
         /// Shutdown Luxafor lighting
         /// </summary>
-        public override void ShutdownHardware()
+        /// <param name="turnLightsOff">Whether to turn the lights off before releasing the devices.
+        /// Pass false to leave the current color displayed, e.g. when Windows is shutting down and an
+        /// out-of-service color has just been set.</param>
+        public override void ShutdownHardware(bool turnLightsOff = true)
         {
             if (Available())
             {
-                // Turn off the lights before shutting down
                 foreach (IDevice device in devices)
                 {
-                    device.SetColor(LedTarget.All, new LuxaforSharp.Color(0, 0, 0), null);
+                    // Turn off the lights before shutting down, unless asked to leave them as-is
+                    if (turnLightsOff)
+                    {
+                        device.SetColor(LedTarget.All, new LuxaforSharp.Color(0, 0, 0), null);
+                    }
                     device.Dispose();
                 }
             }
@@ -194,6 +200,16 @@ namespace LuxOnAir
         {
             StopBlink();
             currentColor = System.Drawing.Color.FromArgb(Colors.SessionLocked);
+            SetAllLights(currentColor);
+        }
+
+        /// <summary>
+        /// Set Luxafor lights to out-of-service status
+        /// </summary>
+        public override void SetOutOfService()
+        {
+            StopBlink();
+            currentColor = System.Drawing.Color.FromArgb(Colors.OutOfService);
             SetAllLights(currentColor);
         }
 

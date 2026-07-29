@@ -31,6 +31,17 @@
         /// </summary>
         public bool WaveMicInUse;
 
+        /// <summary>
+        /// Whether a different color should be set when the system goes out of service
+        /// (sleep, shutdown, restart, logoff)
+        /// </summary>
+        public bool ChangeOnOutOfService;
+
+        /// <summary>
+        /// Color to use when the system is going out of service
+        /// </summary>
+        public int OutOfService;
+
         public StatusColors()
         {
             // Set default colors
@@ -42,6 +53,8 @@
 
             BlinkMicInUse = false;
             WaveMicInUse = false;
+            ChangeOnOutOfService = false;
+            OutOfService = System.Drawing.Color.Blue.ToArgb();
         }
     }
 }

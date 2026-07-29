@@ -19,7 +19,10 @@ namespace LuxOnAir
         /// <summary>
         /// Shutdown RGB lighting
         /// </summary>
-        public abstract void ShutdownHardware();
+        /// <param name="turnLightsOff">Whether to turn the lights off before releasing the devices.
+        /// Pass false to leave the current color displayed, e.g. when Windows is shutting down and an
+        /// out-of-service color has just been set.</param>
+        public abstract void ShutdownHardware(bool turnLightsOff = true);
 
         /// <summary>
         /// Gets the number of RGB light devices currently connected.
@@ -36,6 +39,11 @@ namespace LuxOnAir
         /// Set RGB lights to locked status
         /// </summary>
         public abstract void SetLocked();
+
+        /// <summary>
+        /// Set RGB lights to out-of-service status
+        /// </summary>
+        public abstract void SetOutOfService();
 
         /// <summary>
         /// Set RGB lights to not-in-use status
