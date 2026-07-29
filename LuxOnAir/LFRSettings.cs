@@ -218,6 +218,7 @@ namespace LuxOnAir
         /// </summary>
         public override void SetLightsOff()
         {
+            StopBlink();
             currentColor = System.Drawing.Color.Black;
             SetAllLights(currentColor);
         }

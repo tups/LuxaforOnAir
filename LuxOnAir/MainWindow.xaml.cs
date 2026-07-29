@@ -47,6 +47,11 @@ namespace LuxOnAir
         private bool bSystemShutdown = false;
 
         /// <summary>
+        /// Clears bSystemShutdown if Windows announced a session end but then cancelled it.
+        /// </summary>
+        private System.Timers.Timer shutdownCancelTimer;
+
+        /// <summary>
         /// Watches for system hardware changes (e.g. USB connect/disconnect)
         /// </summary>
         private static ManagementEventWatcher hardwareWatcher;
@@ -318,6 +323,30 @@ namespace LuxOnAir
 
             // Allow the window to close without being cancelled, and never delay Windows shutting down
             bSystemShutdown = true;
+
+            // If the shutdown or logoff is later cancelled by Windows, there is no dedicated
+            // event to observe that. Guard against being stuck in this state forever by clearing
+            // it automatically if the app is still alive well after the session end was announced.
+            // A real shutdown kills the process long before this fires.
+            if (shutdownCancelTimer == null)
+            {
+                shutdownCancelTimer = new System.Timers.Timer(60000) { AutoReset = false };
+                shutdownCancelTimer.Elapsed += ShutdownCancelTimer_Elapsed;
+            }
+            else
+            {
+                shutdownCancelTimer.Stop();
+            }
+            shutdownCancelTimer.Start();
+        }
+
+        /// <summary>
+        /// Clears the system-shutdown flag after the safety interval, on the assumption that
+        /// the previously announced session end must have been cancelled.
+        /// </summary>
+        private void ShutdownCancelTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            bSystemShutdown = false;
         }
 
         /// <summary>
@@ -335,6 +364,10 @@ namespace LuxOnAir
                         WriteToDebug("Console session unlocked. Setting to standard color.");
                         bConsoleLocked = false;
                         CheckMicUsage();
+                        break;
+                    case SessionSwitchReason.SessionLogoff:
+                        // Logoff is owned by OnSessionEnding, which sets the out-of-service
+                        // state. Reacting here as well would overwrite it.
                         break;
                     default:
                         WriteToDebug("Console session locked. Setting to Locked color.");
@@ -486,6 +519,10 @@ namespace LuxOnAir
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            // An explicit Exit proves Windows is still running, so any announced session
+            // end must have been cancelled.
+            if (ReallyExit) { bSystemShutdown = false; }
+
             // Hide the window, don't actually quit unless we used an Exit button or menu,
             // or Windows is shutting us down
             if (!ReallyExit && !bSystemShutdown)
@@ -510,6 +547,13 @@ namespace LuxOnAir
             SystemEvents.SessionEnding -= SessionEndingHandler;
 
             notifyIcon.Dispose();
+
+            // Stop and dispose of the shutdown-cancel safety timer, if it was ever created
+            if (shutdownCancelTimer != null)
+            {
+                shutdownCancelTimer.Stop();
+                shutdownCancelTimer.Dispose();
+            }
 
             // Stop and dispose of WMI event watchers
             regWatcher.Stop();
