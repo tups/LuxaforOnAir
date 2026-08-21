@@ -386,6 +386,14 @@ namespace LuxOnAir
         private void ShutdownCancelTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
             bSystemShutdown = false;
+
+            // Going out of service stopped the mic polling, so put the app back in service.
+            // Nothing else would, now that the registry watcher can no longer be relied on.
+            Dispatcher.Invoke(() =>
+            {
+                WriteToDebug("Session end was cancelled, returning to normal status.");
+                ReturnToService();
+            });
         }
 
         /// <summary>
