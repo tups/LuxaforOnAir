@@ -62,6 +62,38 @@ namespace LuxOnAir
         private static ManagementEventWatcher regWatcher;
 
         /// <summary>
+        /// Polls for microphone usage. Audio sessions raise no system-wide event we can subscribe to,
+        /// and the registry watcher no longer fires on Windows builds that stopped keeping the
+        /// ConsentStore up to date during a capture.
+        /// </summary>
+        private System.Timers.Timer micPollTimer;
+
+        /// <summary>
+        /// How often to check whether the microphone is in use, in milliseconds
+        /// </summary>
+        private const double micPollInterval = 1000;
+
+        /// <summary>
+        /// The status the lights were last set to, so repeated checks don't resend the same status.
+        /// </summary>
+        private LightStatus currentStatus = LightStatus.Unknown;
+
+        /// <summary>
+        /// The statuses the lights can be showing
+        /// </summary>
+        private enum LightStatus
+        {
+            /// <summary>Status is unknown, so the next check must apply whatever it finds</summary>
+            Unknown,
+            /// <summary>The console is locked</summary>
+            Locked,
+            /// <summary>The microphone is in use</summary>
+            InUse,
+            /// <summary>The microphone is not in use</summary>
+            NotInUse
+        }
+
+        /// <summary>
         /// Keeps track of whether the console is locked or unlocked.
         /// </summary>
         private static bool bConsoleLocked = false;
@@ -128,6 +160,11 @@ namespace LuxOnAir
                 hardwareWatcher.EventArrived += USBDevices_Changed;
                 hardwareWatcher.Start();
 
+                // Poll for microphone usage, as active audio sessions raise no system-wide event
+                micPollTimer = new System.Timers.Timer(micPollInterval);
+                micPollTimer.Elapsed += MicPollTimer_Elapsed;
+                micPollTimer.Start();
+
                 // Run the first mic check now
                 CheckMicUsage();
             }
@@ -175,7 +212,9 @@ namespace LuxOnAir
         private void ApplySettings()
         {
             Settings.Default.Save();
-            CheckMicUsage();
+
+            // The user may have changed a color, so always reapply the current status
+            CheckMicUsage(true);
         }
 
         /// <summary>
@@ -303,7 +342,7 @@ namespace LuxOnAir
                     WriteToDebug("System resuming from Suspend, returning to normal status.");
                     Dispatcher.Invoke(() =>
                     {
-                        CheckMicUsage();
+                        ReturnToService();
                     });
                     break;
             }
@@ -429,25 +468,49 @@ namespace LuxOnAir
         /// <summary>
         /// Check if the microphone is in use and react accordingly
         /// </summary>
+        /// <param name="force">Set the lights even if the status has not changed since the last check,
+        /// e.g. after the user picked a new color.</param>
         /// <returns>Text names of all applications using the microphone</returns>
-        private List<string> CheckMicUsage()
+        private List<string> CheckMicUsage(bool force = false)
         {
-            List<string> micUsers = MicrophoneHelper.GetMicUsers();
+            List<string> micUsers;
 
-            if (bConsoleLocked)
+            try
             {
-                Settings.Default.Lights.SetLocked();
+                micUsers = MicrophoneHelper.GetMicUsers();
             }
-            // Check if any applications were found using the mic
-            else if (micUsers.Count > 0)
+            catch (Exception ex)
             {
-                // Trigger mic in use lights
-                Settings.Default.Lights.SetInUse();
+                WriteToDebug(string.Format("Could not check microphone usage: {0}", ex.Message));
+                micUsers = new List<string>();
             }
-            else
+
+            LightStatus newStatus = bConsoleLocked
+                ? LightStatus.Locked
+                : (micUsers.Count > 0 ? LightStatus.InUse : LightStatus.NotInUse);
+
+            // This check runs on a timer, so only touch the lights when something actually changed.
+            // Resending the same status would restart the blink and wave effects on every poll.
+            if (!force && newStatus == currentStatus) { return micUsers; }
+
+            currentStatus = newStatus;
+
+            switch (newStatus)
             {
-                // Trigger mic not in use lights
-                Settings.Default.Lights.SetNotInUse();
+                case LightStatus.Locked:
+                    Settings.Default.Lights.SetLocked();
+                    break;
+                case LightStatus.InUse:
+                    // Trigger mic in use lights
+                    WriteToDebug(string.Format("Mic in use by {0} app{1} ({2}): {3}",
+                        micUsers.Count, micUsers.Count == 1 ? "" : "s", MicrophoneHelper.LastDetectionSource, string.Join(", ", micUsers)));
+                    Settings.Default.Lights.SetInUse();
+                    break;
+                default:
+                    // Trigger mic not in use lights
+                    WriteToDebug("Mic is not in use.");
+                    Settings.Default.Lights.SetNotInUse();
+                    break;
             }
 
             return micUsers;
@@ -455,10 +518,26 @@ namespace LuxOnAir
         }
 
         /// <summary>
+        /// Runs a mic check on the UI thread from the poll timer
+        /// </summary>
+        private void MicPollTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                CheckMicUsage();
+            });
+        }
+
+        /// <summary>
         /// React to the system going out of service (sleep, shutdown, restart, logoff)
         /// </summary>
         private void GoOutOfService()
         {
+            // Stop polling so the next mic check can't overwrite the out-of-service color, and forget
+            // the current status so the check that resumes service always sets the lights again.
+            if (micPollTimer != null) { micPollTimer.Stop(); }
+            currentStatus = LightStatus.Unknown;
+
             if (Settings.Default.Lights.Colors.ChangeOnOutOfService)
             {
                 Settings.Default.Lights.SetOutOfService();
@@ -467,6 +546,27 @@ namespace LuxOnAir
             {
                 Settings.Default.Lights.SetLightsOff();
             }
+        }
+
+        /// <summary>
+        /// Hold a test color on the lights by suspending the mic polling, which would otherwise
+        /// replace it on the next check. The Reset button on the Debug tab returns to normal.
+        /// </summary>
+        private void EnterTestMode()
+        {
+            if (micPollTimer != null) { micPollTimer.Stop(); }
+            currentStatus = LightStatus.Unknown;
+        }
+
+        /// <summary>
+        /// React to the system coming back into service (resume from sleep, cancelled shutdown)
+        /// </summary>
+        private void ReturnToService()
+        {
+            CheckMicUsage(true);
+
+            // Resume polling, which was stopped while out of service
+            if (micPollTimer != null) { micPollTimer.Start(); }
         }
 
         /// <summary>
@@ -547,6 +647,13 @@ namespace LuxOnAir
             SystemEvents.SessionEnding -= SessionEndingHandler;
 
             notifyIcon.Dispose();
+
+            // Stop and dispose of the mic poll timer
+            if (micPollTimer != null)
+            {
+                micPollTimer.Stop();
+                micPollTimer.Dispose();
+            }
 
             // Stop and dispose of the shutdown-cancel safety timer, if it was ever created
             if (shutdownCancelTimer != null)
@@ -640,11 +747,11 @@ namespace LuxOnAir
             // Report mic usage to the debug log
             if (micUsers.Count > 0)
             {
-                WriteToDebug(string.Format("Mic is in use by {0} app{1}:\n{2}", micUsers.Count, micUsers.Count == 1 ? "" : "s", string.Join("\n", micUsers)));
+                WriteToDebug(string.Format("Mic is in use by {0} app{1}, detected via {2}:\n{3}", micUsers.Count, micUsers.Count == 1 ? "" : "s", MicrophoneHelper.LastDetectionSource, string.Join("\n", micUsers)));
             }
             else
             {
-                WriteToDebug("Mic is not currently in use.");
+                WriteToDebug(string.Format("Mic is not currently in use, checked via {0}.", MicrophoneHelper.LastDetectionSource));
             }
         }
 
@@ -695,18 +802,21 @@ namespace LuxOnAir
         private void BtnTestInUse_Click(object sender, RoutedEventArgs e)
         {
             WriteToDebug("Testing 'In Use' color.");
+            EnterTestMode();
             Settings.Default.Lights.SetInUse();
         }
 
         private void BtnTestNotInUse_Click(object sender, RoutedEventArgs e)
         {
             WriteToDebug("Testing 'Not In Use' color.");
+            EnterTestMode();
             Settings.Default.Lights.SetNotInUse();
         }
 
         private void BtnTestLocked_Click(object sender, RoutedEventArgs e)
         {
             WriteToDebug("Testing 'Console Locked' color.");
+            EnterTestMode();
             Settings.Default.Lights.SetLocked();
         }
 
@@ -719,12 +829,12 @@ namespace LuxOnAir
         private void BtnTestReset_Click(object sender, RoutedEventArgs e)
         {
             WriteToDebug("Resetting to normal status color.");
-            CheckMicUsage();
+            ReturnToService();
         }
 
         private void TabItem_LostFocus(object sender, RoutedEventArgs e)
         {
-            CheckMicUsage();
+            CheckMicUsage(true);
         }
 
         private void RadioLocked_Checked(object sender, RoutedEventArgs e)
